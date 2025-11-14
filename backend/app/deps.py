@@ -1,7 +1,8 @@
 from typing import Generator
-from sqlalchemy.orm import Session, sessionmaker
+from sqlalchemy.orm import Session
 from .db import SessionLocal
 from .models import Todo
+
 
 class Store:
     def __init__(self, db: Session):
@@ -21,6 +22,7 @@ class Store:
         # toca la DB para comprobar que responde
         self.db.execute("SELECT 1")
         return {"status": "ok"}
+
 
 def get_store() -> Generator[Store, None, None]:
     db = SessionLocal()
