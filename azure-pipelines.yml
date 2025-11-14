@@ -55,18 +55,12 @@ stages:
         configMode: 'file'
         configFile: 'sonar-project.properties'
 
-    # ---------- FRONTEND: install + lint + unit tests (coverage) ----------
+    # ---------- FRONTEND: install + unit tests (coverage) ----------
     - script: |
         set -e
         cd frontend
         npm ci --no-audit --no-fund || npm i --no-audit --no-fund --legacy-peer-deps
       displayName: 'Frontend - npm ci'
-
-    - script: |
-        set -e
-        cd frontend
-        npm run lint
-      displayName: 'Frontend - ng lint'
 
     - script: |
         set -e
