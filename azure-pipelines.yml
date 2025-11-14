@@ -40,18 +40,40 @@ stages:
         architecture: 'x64'
 
     # ---------- SonarCloud: Prepare (usa sonar-project.properties) ----------
-    - task: SonarCloudPrepare@2
+    - task: SonarCloudPrepare@3
       displayName: 'Prepare SonarCloud analysis'
       inputs:
-        SonarCloud: 'SonarCloud'
-        organization: 'chinogandara'
-        scannerMode: 'Other'
+        SonarCloud: 'SonarCloud'             # nombre de tu Service Connection
+        organization: 'chinogandara'         # org de SonarCloud
+        scannerMode: 'cli'
+        cliScannerVersion: '6.2.1.4610'     
         configMode: 'file'
         configFile: 'sonar-project.properties'
+        extraProperties: |
+        
+        # Directorio base del proyecto (root del repo)
+          sonar.projectBaseDir=$(System.DefaultWorkingDirectory)
 
-    #- task: SonarCloudAnalyze@3
-  #inputs:
-   # jdkversion: 'JAVA_HOME_17_X64'
+          # Cobertura BACKEND (pytest-cov genera backend/coverage.xml)
+          sonar.python.coverage.reportPaths=backend/coverage.xml
+
+          # Cobertura FRONTEND (Angular/Jest/Karma -> lcov.info)
+          sonar.javascript.lcov.reportPaths=frontend/coverage/lcov.info
+
+          # Cosas que NO queremos analizar
+          sonar.exclusions=**/node_modules/**,**/dist/**,frontend/cypress/**,**/*.spec.ts
+
+    # ---------- SonarCloud: Run analysis & publish Quality Gate ----------
+    - task: SonarCloudAnalyze@3
+      displayName: 'Run SonarCloud analysis'
+      inputs:
+        jdkversion: 'JAVA_HOME_17_X64'
+
+    - task: SonarCloudPublish@3
+      displayName: 'Publish SonarCloud quality gate'
+      inputs:
+        pollingTimeoutSec: '300'
+
 
     # ---------- FRONTEND: install + unit tests (coverage) ----------
     - script: |
@@ -65,6 +87,13 @@ stages:
         cd frontend
         npm run test:ci
       displayName: 'Frontend - unit tests with coverage'
+
+    - script: |
+        set -e
+        cd frontend
+        npm run e2e
+      displayName: 'Frontend - Cypress E2E'
+
 
     # ---------- FRONTEND: build prod + package artifact ----------
     - script: |
