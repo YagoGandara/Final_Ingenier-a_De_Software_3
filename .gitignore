@@ -66,3 +66,11 @@ desktop.ini
 *.log
 *.tmp
 *.swp
+
+# Coverage backend
+backend/coverage.xml
+backend/htmlcov/
+
+# Coverage frontend
+frontend/coverage/
+
