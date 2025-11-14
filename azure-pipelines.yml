@@ -49,6 +49,10 @@ stages:
         configMode: 'file'
         configFile: 'sonar-project.properties'
 
+    #- task: SonarCloudAnalyze@3
+  #inputs:
+   # jdkversion: 'JAVA_HOME_17_X64'
+
     # ---------- FRONTEND: install + unit tests (coverage) ----------
     - script: |
         set -e
