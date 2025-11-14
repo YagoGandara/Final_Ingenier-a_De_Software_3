@@ -1,19 +1,16 @@
 [flake8]
-# Longitud máxima de línea razonable para este proyecto
 max-line-length = 100
 
-# Carpetas a ignorar (venv, cache, etc.)
 exclude =
     .venv,
     __pycache__,
     .pytest_cache
 
-# Reglas que NO vamos a hacer fallar en este TP
 ignore =
-    E302,  # expected 2 blank lines, found 1
-    E305,  # expected 2 blank lines after class or function definition
-    E265,  # block comment should start with '# '
-    E501,  # line too long
-    W291,  # trailing whitespace
-    E225,  # missing whitespace around operator
-    F401   # imported but unused
+    E302,
+    E305,
+    E265,
+    E501,
+    W291,
+    E225,
+    F401
