@@ -1,0 +1,38 @@
+# 🔹 Stage 1: build de Angular
+FROM node:20-alpine AS build
+
+WORKDIR /app
+
+COPY package*.json ./
+RUN npm ci
+
+# Copiamos el resto del código
+COPY . .
+
+# Build en modo producción
+RUN npm run build -- --configuration=production
+
+# 🔹 Stage 2: Nginx para servir la SPA
+FROM nginx:alpine
+
+# Eliminamos el sitio por defecto de Nginx
+RUN rm /etc/nginx/conf.d/default.conf
+
+# Config personalizado para Angular
+COPY nginx.conf /etc/nginx/conf.d/default.conf
+
+# Copiamos los artefactos generados por Angular
+COPY --from=build /app/dist/tp05-web /usr/share/nginx/html
+
+# EntryPoint: genera env.js en base a la variable de entorno API_BASE_URL
+COPY docker-entrypoint.sh /docker-entrypoint.sh
+RUN chmod +x /docker-entrypoint.sh
+
+# Puerto HTTP de Nginx
+EXPOSE 80
+
+# Valores por defecto (los vas a sobreescribir en App Service)
+ENV API_BASE_URL="http://localhost:8080" \
+    ENV_JS_PATH="/usr/share/nginx/html/assets/env.js"
+
+CMD ["/docker-entrypoint.sh"]

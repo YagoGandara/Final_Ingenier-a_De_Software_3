@@ -18,13 +18,20 @@ variables:
   # Toggle de pruebas de humo
   runSmokeTests: 'false'   # poné 'true' si querés ejecutarlas
 
+  # ------- TP08: Docker Hub -------
+  dockerHubServiceConnection: 'dockerhub-connection'   # Service Connection en Azure DevOps
+  dockerHubNamespace: 'yagogandara'                    # Tu usuario Docker Hub
+  apiImageName: 'todos-api'
+  webImageName: 'todos-web'
+  imageTag: '$(Build.BuildId)'                         # Tag de imagen = número de build
+
 stages:
 # ==================== BUILD & ANALYZE ====================
 - stage: Build
-  displayName: Build, Test, Coverage & Sonar
+  displayName: Build, Test, Coverage, Sonar & Docker
   jobs:
   - job: build_and_analyze
-    displayName: Front + Back + Coverage + Sonar
+    displayName: Front + Back + Coverage + Sonar + Docker
     steps:
     - checkout: self
       fetchDepth: 0
@@ -39,7 +46,7 @@ stages:
         versionSpec: '$(python_version)'
         architecture: 'x64'
 
-       # ---------- SonarCloud: Prepare (usa sonar-project.properties) ----------
+    # ---------- SonarCloud: Prepare (usa sonar-project.properties) ----------
     - task: SonarCloudPrepare@2
       displayName: 'Prepare SonarCloud analysis'
       inputs:
@@ -78,30 +85,12 @@ stages:
         summaryFileLocation: 'frontend/coverage/cobertura.xml'
         reportDirectory: 'frontend/coverage'
 
-
+    # ---------- CYPRESS E2E -------------
     - script: |
         set -e
         cd frontend
         npm run e2e
       displayName: 'Frontend - Cypress E2E'
-
-
-    # ---------- FRONTEND: build prod + package artifact ----------
-    - script: |
-        set -e
-        cd frontend
-        npm run build:prod
-      displayName: 'Frontend - ng build --configuration=production'
-
-    - task: ArchiveFiles@2
-      displayName: 'Package frontend dist as ZIP'
-      inputs:
-        # 👇 Igual que antes: zipeamos el contenido de la app Angular
-        rootFolderOrFile: 'frontend/dist/tp05-web'
-        includeRootFolder: false
-        archiveFile: '$(Build.ArtifactStagingDirectory)/front.zip'
-        archiveType: 'zip'
-
 
     # ---------- BACKEND: deps + lint + tests (coverage + integración) ----------
     - script: |
@@ -141,28 +130,6 @@ stages:
         reportDirectory: 'backend/htmlcov'
         failIfCoverageEmpty: true
 
-    - task: ArchiveFiles@2
-      displayName: 'Package backend as ZIP'
-      inputs:
-        rootFolderOrFile: 'backend'
-        includeRootFolder: false      
-        archiveFile: '$(Build.ArtifactStagingDirectory)/backend.zip'
-        archiveType: 'zip'
-
-    - task: PublishBuildArtifacts@1
-      displayName: 'Publish frontend artifact'
-      inputs:
-        pathToPublish: '$(Build.ArtifactStagingDirectory)/front.zip'
-        artifactName: 'front'
-        publishLocation: 'Container'
-
-    - task: PublishBuildArtifacts@1
-      displayName: 'Publish backend artifact'
-      inputs:
-        pathToPublish: '$(Build.ArtifactStagingDirectory)/backend.zip'
-        artifactName: 'back'
-        publishLocation: 'Container'
-
     # ---------- SonarCloud: Run analysis & publish Quality Gate ----------
     - task: SonarCloudAnalyze@2
       displayName: 'Run SonarCloud analysis'
@@ -172,62 +139,66 @@ stages:
       inputs:
         pollingTimeoutSec: '300'
 
-# ==================== DEPLOY QA ====================
+    # ---------- DOCKER: Build & Push images to Docker Hub ----------
+    - task: Docker@2
+      displayName: 'Build & Push API image'
+      inputs:
+        containerRegistry: '$(dockerHubServiceConnection)'
+        repository: '$(dockerHubNamespace)/$(apiImageName)'
+        command: 'buildAndPush'
+        Dockerfile: 'backend/Dockerfile'
+        buildContext: 'backend'
+        tags: |
+          $(imageTag)
+          latest
+
+    - task: Docker@2
+      displayName: 'Build & Push Web image'
+      inputs:
+        containerRegistry: '$(dockerHubServiceConnection)'
+        repository: '$(dockerHubNamespace)/$(webImageName)'
+        command: 'buildAndPush'
+        Dockerfile: 'frontend/Dockerfile.prod'
+        buildContext: 'frontend'
+        tags: |
+          $(imageTag)
+          latest
+
+# ==================== DEPLOY QA (CONTAINERS) ====================
 - stage: DeployQA
-  displayName: Deploy to QA
+  displayName: Deploy to QA (containers)
   dependsOn: Build
   condition: succeeded()
   jobs:
   - deployment: QaDeploy
     displayName: Deploy Front & API to QA
-    environment: 'QA'    # usá el Environment de Azure con aprobaciones configuradas
+    environment: 'QA'
     strategy:
       runOnce:
         deploy:
           steps:
-          - download: current
-            artifact: front
-          - download: current
-            artifact: back
-
-          # Genero env.js QA
-          - script: |
-              set -e
-              echo "window.__env = { apiBase: '$(apiBaseUrlQA)' };" > "$(Pipeline.Workspace)/env.qa.js"
-            displayName: 'Generate env.js (QA)'
-
-          # Re empaqueto el front + env.js QA
-          - script: |
-              set -e
-              mkdir -p "$(Pipeline.Workspace)/front_qa_unpack"
-              cd "$(Pipeline.Workspace)/front_qa_unpack"
-              unzip -q "$(Pipeline.Workspace)/front/front.zip"
-              mkdir -p assets
-              cp "$(Pipeline.Workspace)/env.qa.js" assets/env.js
-              # acá el zip se crea en el cwd (front_qa_unpack)
-              zip -qr "front-qa-with-env.zip" .
-            displayName: 'Repackage front with env.js (QA)'
-
-          # Deploy FRONT QA
-          - task: AzureWebApp@1
-            displayName: 'Deploy FRONT to $(webQaName)'
+          # Deploy API QA como contenedor
+          - task: AzureWebAppContainer@1
+            displayName: 'Deploy API container to $(apiQaName)'
             inputs:
               azureSubscription: '$(azureConnection)'
-              appType: 'webAppLinux'
-              appName: '$(webQaName)'
-              package: '$(Pipeline.Workspace)/front_qa_unpack/front-qa-with-env.zip'
-              deploymentMethod: 'zipDeploy'
-
-          # Deploy API QA
-          - task: AzureWebApp@1
-            displayName: 'Deploy API to $(apiQaName)'
-            inputs:
-              azureSubscription: '$(azureConnection)'
-              appType: 'webAppLinux'
               appName: '$(apiQaName)'
-              package: '$(Pipeline.Workspace)/back/backend.zip'
-              deploymentMethod: 'zipDeploy'
+              containers: |
+                $(dockerHubNamespace)/$(apiImageName):$(imageTag)
+              appSettings: |
+                APP_ENV=qa
 
+          # Deploy WEB QA como contenedor
+          - task: AzureWebAppContainer@1
+            displayName: 'Deploy Web container to $(webQaName)'
+            inputs:
+              azureSubscription: '$(azureConnection)'
+              appName: '$(webQaName)'
+              containers: |
+                $(dockerHubNamespace)/$(webImageName):$(imageTag)
+              appSettings: |
+                APP_ENV=qa
+                API_BASE_URL=$(apiBaseUrlQA)
 
           # Smoke tests QA (API + FRONT)
           - script: |
@@ -244,9 +215,9 @@ stages:
             displayName: 'Smoke tests QA'
             condition: and(succeeded(), eq(variables['runSmokeTests'], 'true'))
 
-# ==================== DEPLOY PROD ====================
+# ==================== DEPLOY PROD (CONTAINERS) ====================
 - stage: DeployPROD
-  displayName: Deploy to PROD
+  displayName: Deploy to PROD (containers)
   dependsOn: DeployQA
   condition: succeeded()
   jobs:
@@ -257,49 +228,28 @@ stages:
       runOnce:
         deploy:
           steps:
-          - download: current
-            artifact: front
-          - download: current
-            artifact: back
-
-          # Genero env.js PROD
-          - script: |
-              set -e
-              echo "window.__env = { apiBase: '$(apiBaseUrlPROD)' };" > "$(Pipeline.Workspace)/env.prod.js"
-            displayName: 'Generate env.js (PROD)'
-
-          # Re empaqueto el front + env.js PROD
-          - script: |
-              set -e
-              mkdir -p "$(Pipeline.Workspace)/front_prod_unpack"
-              cd "$(Pipeline.Workspace)/front_prod_unpack"
-              unzip -q "$(Pipeline.Workspace)/front/front.zip"
-              mkdir -p assets
-              cp "$(Pipeline.Workspace)/env.prod.js" assets/env.js
-              zip -qr "front-prod-with-env.zip" .
-            displayName: 'Repackage front with env.js (PROD)'
-
-          # Deploy FRONT PROD
-          - task: AzureWebApp@1
-            displayName: 'Deploy FRONT to $(webProdName)'
+          # Deploy API PROD como contenedor
+          - task: AzureWebAppContainer@1
+            displayName: 'Deploy API container to $(apiProdName)'
             inputs:
               azureSubscription: '$(azureConnection)'
-              appType: 'webAppLinux'
-              appName: '$(webProdName)'
-              package: '$(Pipeline.Workspace)/front_prod_unpack/front-prod-with-env.zip'
-              deploymentMethod: 'zipDeploy'
-
-          # Deploy API PROD
-          - task: AzureWebApp@1
-            displayName: 'Deploy API to $(apiProdName)'
-            inputs:
-              azureSubscription: '$(azureConnection)'
-              appType: 'webAppLinux'
               appName: '$(apiProdName)'
-              package: '$(Pipeline.Workspace)/back/backend.zip'
-              deploymentMethod: 'zipDeploy'
+              containers: |
+                $(dockerHubNamespace)/$(apiImageName):$(imageTag)
+              appSettings: |
+                APP_ENV=prod
 
-
+          # Deploy WEB PROD como contenedor
+          - task: AzureWebAppContainer@1
+            displayName: 'Deploy Web container to $(webProdName)'
+            inputs:
+              azureSubscription: '$(azureConnection)'
+              appName: '$(webProdName)'
+              containers: |
+                $(dockerHubNamespace)/$(webImageName):$(imageTag)
+              appSettings: |
+                APP_ENV=prod
+                API_BASE_URL=$(apiBaseUrlPROD)
 
           # Smoke tests PROD (API + FRONT)
           - script: |
