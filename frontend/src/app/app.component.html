@@ -3,17 +3,59 @@
 
   <div class="card">
     <strong>Health:</strong>
-    <span class="badge" *ngIf="health() as h">{{ h.status }} · {{ h.env }}</span>
+    <span class="badge" *ngIf="health() as h">
+      {{ h.status }} · {{ h.env }}
+    </span>
+  </div>
+
+  <div class="card" *ngIf="stats() as s">
+    <h3>Resumen</h3>
+    <p>
+      Total: <strong>{{ s.total }}</strong> · Pendientes:
+      <strong>{{ s.pending }}</strong> · Hechas:
+      <strong>{{ s.done }}</strong>
+    </p>
+  </div>
+
+  <div class="card error" *ngIf="error">
+    <strong>Error:</strong> {{ error }}
+  </div>
+
+  <div class="card">
+    <h3>Filtros</h3>
+    <div style="display: flex; gap: 0.5rem; margin: 0.5rem 0;">
+      <input
+        [(ngModel)]="filterText"
+        placeholder="Buscar por título o descripción..."
+      />
+
+      <select [(ngModel)]="filterDone">
+        <option value="all">Todas</option>
+        <option value="pending">Pendientes</option>
+        <option value="done">Hechas</option>
+      </select>
+
+      <button (click)="applyFilters()" [disabled]="loading()">
+        Aplicar filtros
+      </button>
+    </div>
   </div>
 
   <div class="card">
     <h3>Todos</h3>
-    <div style="display:flex; gap:.5rem; margin:.5rem 0;">
+    <div style="display: flex; gap: 0.5rem; margin: 0.5rem 0;">
       <input [(ngModel)]="newTitle" placeholder="Nueva tarea..." />
       <button (click)="add()" [disabled]="loading()">Agregar</button>
     </div>
     <ul>
-      <li *ngFor="let t of todos()">✔️ {{ t.title }}</li>
+      <li *ngFor="let t of todos()">
+        <span *ngIf="t.done">✔️</span>
+        <span *ngIf="!t.done">⏳</span>
+        {{ t.title }}
+        <button (click)="toggle(t)" [disabled]="loading()">
+          {{ t.done ? 'Marcar como pendiente' : 'Marcar como hecha' }}
+        </button>
+      </li>
     </ul>
   </div>
 </div>

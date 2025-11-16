@@ -10,6 +10,7 @@ from .config import settings
 from fastapi.middleware.cors import CORSMiddleware
 from .deps import get_store, Store
 from .schemas import TodoIn, TodoOut
+from .logic import normalize_title, validate_new_todo, compute_stats, filter_todos
 from .seed import seed_if_empty
 from dotenv import load_dotenv
 
@@ -34,7 +35,6 @@ if settings.SEED_ON_START.lower() == "true":
         with SessionLocal() as db:
             seed_if_empty(db)
     except Exception as e:
-        # loggear si querés; no romper el start por un seed
         print(f"[WARN] seed_on_start failed: {e}")
 
 
@@ -52,16 +52,14 @@ def root():
     return {"status": "ok", "message": "tp05-api running"}
 
 
-# --- Healthchecks robustos ---
+# --- Healthchecks ---
 @app.get("/healthz")
 def healthz():
-    # ping superficial: el proceso responde
     return {"status": "ok"}
 
 
 @app.get("/readyz")
 def readyz():
-    # readiness: probar DB sin depender de DI
     info = {"app": "ok"}
     code = 200
     try:
@@ -79,9 +77,7 @@ def readyz():
     return JSONResponse(info, status_code=code)
 
 
-# --- Fin healthchecks ---
-
-# --- DEBUG ROUTES (temporales; quitarlas en PROD) ---
+# --- DEBUG ---
 @app.get("/admin/debug")
 def debug():
     return {
@@ -97,32 +93,60 @@ def touch():
         return {"count": db.query(Todo).count()}
 
 
-# --- FIN DEBUG ---
-
-
+# --- TODOs ---
 @app.get("/api/todos", response_model=list[TodoOut])
 def list_todos(store: Store = Depends(get_store)):
     return store.list()
 
 
+@app.get("/api/todos/stats")
+def todos_stats(store: Store = Depends(get_store)):
+    todos = store.list()
+    return compute_stats(todos)
+
+
+@app.get("/api/todos/search", response_model=list[TodoOut])
+def search_todos(
+    q: str | None = None,
+    done: bool | None = None,
+    store: Store = Depends(get_store),
+):
+    todos = store.list()
+    filtered = filter_todos(todos, done=done, text=q)
+    return filtered
+
+
+@app.patch("/api/todos/{todo_id}/toggle", response_model=TodoOut)
+def toggle_todo(todo_id: int, store: Store = Depends(get_store)):
+    """Invierte el estado done de un "todo".
+
+    - 200 con el "todo" actualizado si existe.
+    - 404 si no existe.
+    """
+    todo = store.toggle(todo_id)
+    if todo is None:
+        raise HTTPException(status_code=404, detail="todo not found")
+    return todo
+
+
 @app.post("/api/todos", response_model=TodoOut, status_code=201)
 def create_todo(payload: TodoIn, store: Store = Depends(get_store)):
-    # Reglas de negocio:
-    # - El título no puede estar vacío (solo espacios).
-    # - El título debe ser único (case-insensitive).
-    title = payload.title.strip()
-    if not title:
-        raise HTTPException(status_code=400, detail="title must not be empty")
+    normalized = normalize_title(payload.title)
+    try:
+        validate_new_todo(normalized, store.list())
+    except ValueError as e:
+        code = str(e)
+        if code == "empty":
+            raise HTTPException(status_code=400, detail="title must not be empty")
+        if code == "duplicate":
+            raise HTTPException(status_code=400, detail="title must be unique")
+        raise
 
-    # Regla de unicidad: no permitir dos títulos iguales (case-insensitive)
-    existing = [t for t in store.list() if t.title.lower() == title.lower()]
-    if existing:
-        raise HTTPException(status_code=400, detail="title must be unique")
-
-    todo = store.add(title=title, description=payload.description)
+    todo = store.add(title=normalized, description=payload.description)
     return todo
 
 
 if __name__ == "__main__":
     import uvicorn
+
     uvicorn.run(app, host="0.0.0.0", port=int(os.getenv("API_PORT", 8080)))
