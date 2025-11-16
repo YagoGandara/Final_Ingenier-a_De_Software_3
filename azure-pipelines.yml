@@ -125,6 +125,15 @@ stages:
         cd frontend
         npm run test:ci
       displayName: 'Frontend - unit tests with coverage'
+    
+    - task: PublishTestResults@2
+      displayName: 'Publish frontend unit test results'
+      inputs:
+        testResultsFormat: 'JUnit'
+        testResultsFiles: 'frontend/test-results/unit-tests.xml'
+        failTaskOnFailedTests: true
+        testRunTitle: 'Frontend unit tests'
+
 
     - task: PublishCodeCoverageResults@1
       displayName: 'Publish frontend code coverage'
@@ -139,6 +148,16 @@ stages:
         cd frontend
         npm run e2e
       displayName: 'Frontend - Cypress E2E'
+    
+    - task: PublishTestResults@2
+      displayName: 'Publish frontend E2E test results'
+      inputs:
+        testResultsFormat: 'JUnit'
+        testResultsFiles: 'frontend/cypress/results/*.xml'
+        mergeTestResults: true
+        failTaskOnFailedTests: true
+        testRunTitle: 'Frontend E2E tests'
+
 
     # ---------- Apagar API usada para Cypress ----------
     - script: |

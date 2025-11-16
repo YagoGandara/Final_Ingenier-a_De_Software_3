@@ -1,4 +1,3 @@
-// frontend/karma.conf.js
 const { join } = require('path');
 
 module.exports = function (config) {
@@ -10,6 +9,7 @@ module.exports = function (config) {
       require('karma-chrome-launcher'),
       require('karma-jasmine-html-reporter'),
       require('karma-coverage'),
+      require('karma-junit-reporter'),
       require('@angular-devkit/build-angular/plugins/karma'),
     ],
     client: {
@@ -19,16 +19,21 @@ module.exports = function (config) {
       suppressAll: true,
     },
     coverageReporter: {
-      dir: require('path').join(__dirname, './coverage'),
+      dir: join(__dirname, './coverage'),
       reporters: [
         // Reporte para SonarCloud (lcov.info)
         { type: 'lcov', subdir: '.' },
 
         // Reporte para Azure DevOps (Code Coverage tab)
-        { type: 'cobertura', subdir: '.', file: 'cobertura.xml' }
-      ]
+        { type: 'cobertura', subdir: '.', file: 'cobertura.xml' },
+      ],
     },
-    reporters: ['progress', 'kjhtml'],
+    junitReporter: {
+      outputDir: join(__dirname, './test-results'),
+      outputFile: 'unit-tests.xml',
+      useBrowserName: false,
+    },
+    reporters: ['progress', 'kjhtml', 'junit'],
     port: 9876,
     colors: true,
     logLevel: config.LOG_INFO,
