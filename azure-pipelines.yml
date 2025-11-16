@@ -57,40 +57,12 @@ stages:
         configFile: 'sonar-project.properties'
         extraProperties: |
           sonar.python.coverage.reportPaths=backend/coverage.xml
-
           sonar.javascript.lcov.reportPaths=frontend/coverage/lcov.info
 
           sonar.exclusions=**/node_modules/**,**/dist/**,frontend/cypress/**,**/*.spec.ts
 
           sonar.javascript.file.suffixes=.js
           sonar.typescript.file.suffixes=.ts,.tsx,.cts,.mts
-
-    # ---------- FRONTEND: install + unit tests (coverage) ----------
-    - script: |
-        set -e
-        cd frontend
-        npm ci --no-audit --no-fund || npm i --no-audit --no-fund --legacy-peer-deps
-      displayName: 'Frontend - npm ci'
-
-    - script: |
-        set -e
-        cd frontend
-        npm run test:ci
-      displayName: 'Frontend - unit tests with coverage'
-
-    - task: PublishCodeCoverageResults@1
-      displayName: 'Publish frontend code coverage'
-      inputs:
-        codeCoverageTool: 'Cobertura'
-        summaryFileLocation: 'frontend/coverage/cobertura.xml'
-        reportDirectory: 'frontend/coverage'
-
-    # ---------- CYPRESS E2E -------------
-    - script: |
-        set -e
-        cd frontend
-        npm run e2e
-      displayName: 'Frontend - Cypress E2E'
 
     # ---------- BACKEND: deps + lint + tests (coverage + integración) ----------
     - script: |
@@ -129,6 +101,52 @@ stages:
         summaryFileLocation: 'backend/coverage.xml'
         reportDirectory: 'backend/htmlcov'
         failIfCoverageEmpty: true
+
+    # ---------- Levantar API para Cypress ----------
+    - script: |
+        set -e
+        cd backend
+        # levantamos FastAPI en background para los E2E
+        nohup uvicorn app.main:app --host 0.0.0.0 --port 8080 > ../uvicorn.log 2>&1 &
+        echo $! > ../uvicorn.pid
+        # esperamos un toque a que levante
+        sleep 5
+      displayName: 'Start backend API for Cypress'
+
+    # ---------- FRONTEND: install + unit tests (coverage) ----------
+    - script: |
+        set -e
+        cd frontend
+        npm ci --no-audit --no-fund || npm i --no-audit --no-fund --legacy-peer-deps
+      displayName: 'Frontend - npm ci'
+
+    - script: |
+        set -e
+        cd frontend
+        npm run test:ci
+      displayName: 'Frontend - unit tests with coverage'
+
+    - task: PublishCodeCoverageResults@1
+      displayName: 'Publish frontend code coverage'
+      inputs:
+        codeCoverageTool: 'Cobertura'
+        summaryFileLocation: 'frontend/coverage/cobertura.xml'
+        reportDirectory: 'frontend/coverage'
+
+    # ---------- CYPRESS E2E -------------
+    - script: |
+        set -e
+        cd frontend
+        npm run e2e
+      displayName: 'Frontend - Cypress E2E'
+
+    # ---------- Apagar API usada para Cypress ----------
+    - script: |
+        set +e
+        if [ -f uvicorn.pid ]; then
+          kill "$(cat uvicorn.pid)" || true
+        fi
+      displayName: 'Stop backend API for Cypress'
 
     # ---------- SonarCloud: Run analysis & publish Quality Gate ----------
     - task: SonarCloudAnalyze@2
