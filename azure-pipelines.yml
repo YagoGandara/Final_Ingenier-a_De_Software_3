@@ -107,7 +107,7 @@ stages:
         set -e
         cd backend
         # levantamos FastAPI en background para los E2E
-        nohup uvicorn app.main:app --host 0.0.0.0 --port 8080 > ../uvicorn.log 2>&1 &
+        nohup uvicorn app.main:app --host 0.0.0.0 --port 8000 > ../uvicorn.log 2>&1 &
         echo $! > ../uvicorn.pid
         # esperamos un toque a que levante
         sleep 5
