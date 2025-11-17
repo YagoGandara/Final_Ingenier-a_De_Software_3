@@ -1,9 +1,0 @@
-<?xml version="1.0" encoding="UTF-8"?>
-<testsuites name="Mocha Tests" time="0.787" tests="1" failures="0">
-  <testsuite name="Root Suite" timestamp="2025-11-16T23:23:23" tests="0" file="cypress\e2e\smoke.cy.ts" time="0.000" failures="0">
-  </testsuite>
-  <testsuite name="TP07 - Smoke E2E" timestamp="2025-11-16T23:23:23" tests="1" time="0.776" failures="0">
-    <testcase name="TP07 - Smoke E2E Carga la aplicación Angular en /" time="0.730" classname="Carga la aplicación Angular en /">
-    </testcase>
-  </testsuite>
-</testsuites>
