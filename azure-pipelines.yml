@@ -106,13 +106,24 @@ stages:
     - script: |
         set -e
         cd backend
-        # levantamos FastAPI en background para los E2E
-        nohup uvicorn app.main:app --host 0.0.0.0 --port 8000 > ../uvicorn.log 2>&1 &
-        echo $! > ../uvicorn.pid
-        # esperamos un toque a que levante
-        sleep 5
-      displayName: 'Start backend API for Cypress'
 
+        # Opcional pero recomendable: marcamos que estamos en CI
+        export ENV=ci
+
+        # Levantamos FastAPI en background en el MISMO puerto que usa el front (8080)
+        nohup uvicorn app.main:app --host 0.0.0.0 --port 8080 > ../uvicorn.log 2>&1 &
+        echo $! > ../uvicorn.pid
+
+        # Esperamos a que esté lista la API (healthcheck simple)
+        for i in {1..20}; do
+          if curl -fsS http://localhost:8080/healthz > /dev/null 2>&1; then
+            echo "API OK en http://localhost:8080"
+            break
+          fi
+          echo "Esperando API..."
+          sleep 2
+        done
+      displayName: 'Start backend API for Cypress'
     # ---------- FRONTEND: install + unit tests (coverage) ----------
     - script: |
         set -e
