@@ -78,4 +78,5 @@ frontend/coverage/
 # Cypress artefacts
 frontend/cypress/videos/
 frontend/cypress/screenshots/
+frontend/cypress/results
 

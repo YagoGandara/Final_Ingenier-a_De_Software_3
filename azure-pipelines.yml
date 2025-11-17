@@ -153,6 +153,14 @@ stages:
         summaryFileLocation: 'frontend/coverage/cobertura.xml'
         reportDirectory: 'frontend/coverage'
 
+    # ---------- Limpiar resultados Cypress viejos ----------
+    - script: |
+        set -e
+        cd frontend
+        rm -rf cypress/results
+        mkdir -p cypress/results
+      displayName: 'Clean Cypress results'
+
     # ---------- CYPRESS E2E -------------
     - script: |
         set -e
