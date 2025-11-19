@@ -141,9 +141,11 @@ stages:
       displayName: 'Publish frontend unit test results'
       inputs:
         testResultsFormat: 'JUnit'
-        testResultsFiles: 'frontend/test-results/unit-tests.xml'
+        testResultsFiles: 'test-results/*.xml'
+        searchFolder: 'frontend'
         failTaskOnFailedTests: true
         testRunTitle: 'Frontend unit tests'
+
 
 
     - task: PublishCodeCoverageResults@1
