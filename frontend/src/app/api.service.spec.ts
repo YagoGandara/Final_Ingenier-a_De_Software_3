@@ -55,16 +55,25 @@ describe('ApiService', () => {
     expect(result).toEqual(mock);
   });
 
-  it('addTodo() debe hacer POST /api/todos con el body correcto', () => {
-    const title = 'Comprar facturas';
+  it('addTodo() incluye description cuando se provee y la trimea', () => {
+    const title = 'Tarea con descripción';
+    const description = '  Detalle importante  ';
 
-    service.addTodo(title).subscribe();
+    service.addTodo(title, description).subscribe();
 
     const req = http.expectOne('http://fake-api/api/todos');
     expect(req.request.method).toBe('POST');
-    expect(req.request.body).toEqual({ title });
+    expect(req.request.body).toEqual({
+      title,
+      description: 'Detalle importante',
+    });
 
-    req.flush({ id: 1, title, done: false });
+    req.flush({
+      id: 2,
+      title,
+      done: false,
+      description: 'Detalle importante',
+    } as Todo);
   });
 
   it('stats() debe hacer GET /api/todos/stats', () => {

@@ -82,11 +82,13 @@ describe('AppComponent', () => {
 
   it('add() debe trim()ear el título y llamar al ApiService con el título normalizado', () => {
     component.newTitle = '  Nueva tarea  ';
+    component.newDescription = '   '; // sin descripción efectiva
 
     component.add();
 
-    expect(api.addTodo).toHaveBeenCalledWith('Nueva tarea');
+    expect(api.addTodo).toHaveBeenCalledWith('Nueva tarea', undefined);
   });
+
 
   it('add() debe agregar el todo devuelto a la lista existente', () => {
     component.newTitle = 'Nueva tarea';
@@ -148,6 +150,21 @@ describe('AppComponent', () => {
     expect(component.error).toBe('Ya existe una tarea con ese título');
     expect(component.loading()).toBeFalse();
   });
+
+    it('add() debe enviar también la descripción cuando se completa y limpiar ambos campos', () => {
+    component.newTitle = 'Nueva con desc';
+    component.newDescription = '  Detalle importante  ';
+
+    component.add();
+
+    expect(api.addTodo).toHaveBeenCalledWith(
+      'Nueva con desc',
+      'Detalle importante',
+    );
+    expect(component.newTitle).toBe('');
+    expect(component.newDescription).toBe('');
+  });
+
 
   it('toggle() debe llamar al ApiService con el id correcto', () => {
     const todo = { id: 1, title: 'Tarea inicial', done: false };

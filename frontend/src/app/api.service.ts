@@ -35,16 +35,29 @@ export class ApiService {
 
   constructor(private http: HttpClient) {}
 
+  // 👇 Tipamos bien la respuesta de /healthz
   health() {
-    return this.http.get(`${this.base}/healthz`);
+    return this.http.get<{ status: string; env: string }>(
+      `${this.base}/healthz`,
+    );
   }
 
   listTodos() {
     return this.http.get<Todo[]>(`${this.base}/api/todos`);
   }
 
-  addTodo(title: string) {
-    return this.http.post<Todo>(`${this.base}/api/todos`, { title });
+  // Ahora soporta descripción opcional
+  addTodo(title: string, description?: string | null) {
+    const trimmedTitle = (title || '').trim();
+    const trimmedDescription = (description || '').trim();
+
+    const payload: any = { title: trimmedTitle };
+
+    if (trimmedDescription) {
+      payload.description = trimmedDescription;
+    }
+
+    return this.http.post<Todo>(`${this.base}/api/todos`, payload);
   }
 
   stats() {

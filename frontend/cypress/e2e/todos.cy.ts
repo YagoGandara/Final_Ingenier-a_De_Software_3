@@ -91,4 +91,26 @@ describe('Todos App - E2E', () => {
       'exist',
     );
   });
+
+  it('Actualiza el resumen avanzado cuando se agregan nuevos TODOs', () => {
+    cy.visit('/');
+
+    // Tomamos el texto actual del resumen avanzado
+    cy.contains('h3', 'Resumen avanzado')
+      .parent()
+      .invoke('text')
+      .then((before) => {
+        const todoText = 'Tarea resumen avanzado ' + Date.now();
+
+        cy.get('input[placeholder="Nueva tarea..."]').clear().type(todoText);
+        cy.contains('button', 'Agregar').click();
+        cy.contains('ul li', todoText).should('exist');
+
+        // El texto del resumen avanzado debería haber cambiado
+        cy.contains('h3', 'Resumen avanzado')
+          .parent()
+          .invoke('text')
+          .should('not.eq', before);
+      });
+  });
 });
