@@ -73,6 +73,7 @@ backend/htmlcov/
 
 # Coverage frontend
 frontend/coverage/
+frontend/test-results/
 
 
 # Cypress artefacts

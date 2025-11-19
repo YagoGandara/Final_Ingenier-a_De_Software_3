@@ -6,7 +6,7 @@
     "start": "ng serve --host 0.0.0.0 --port 4200",
     "build": "ng build",
     "test": "ng test",
-    "test:ci": "ng test --watch=false --browsers=ChromeHeadless --code-coverage",
+    "test:ci": "ng test --watch=false --browsers=ChromeHeadless --code-coverage --karma-config=karma.conf.js",
     "lint": "echo \"ng lint no está configurado en este proyecto; usamos SonarCloud para análisis estático del frontend\"",
     "build:qa": "ng build --configuration=qa",
     "build:prod": "ng build --configuration=production",
@@ -30,16 +30,16 @@
     "@angular-devkit/build-angular": "18.2.4",
     "@angular/cli": "18.2.4",
     "@angular/compiler-cli": "18.2.0",
-    "typescript": "5.5.4",
     "@types/jasmine": "^5.1.0",
+    "cypress": "^13.15.0",
     "jasmine-core": "^5.2.0",
     "karma": "^6.4.4",
     "karma-chrome-launcher": "^3.2.0",
     "karma-coverage": "^2.2.0",
     "karma-jasmine": "^5.1.0",
-    "karma-junit-reporter": "^2.0.1",
     "karma-jasmine-html-reporter": "^2.1.0",
-    "cypress": "^13.15.0",
-    "start-server-and-test": "^2.0.0"
+    "karma-junit-reporter": "^2.0.1",
+    "start-server-and-test": "^2.0.0",
+    "typescript": "5.5.4"
   }
 }
