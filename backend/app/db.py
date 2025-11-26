@@ -1,23 +1,38 @@
 import os
+from typing import Generator
+
 from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
-from .config import settings
+from sqlalchemy.orm import sessionmaker, declarative_base
 
-#crear carpeta contenedora si no existe
-def _ensure_sqlite_dir(db_url: str):
-    if db_url.startswith("sqlite:///"):
-        # ruta relativa
-        path = db_url.replace("sqlite:///", "", 1)
-    elif db_url.startswith("sqlite:////"):
-        path = db_url.replace("sqlite:////", "/", 1)
-    else:
-        return
-    dirpath = os.path.dirname(path)
-    if dirpath and not os.path.exists(dirpath):
-        os.makedirs(dirpath, exist_ok=True)
+# Si viene DATABASE_URL por entorno, la usamos.
+# Si no, mantenemos el comportamiento actual: sqlite:///./app.db
+SQLALCHEMY_DATABASE_URL = os.getenv(
+    "DATABASE_URL",
+    "sqlite:///./app.db",
+)
 
-_ensure_sqlite_dir(settings.DB_URL)
+# Para SQLite necesitamos el connect_args, para otros motores no
+connect_args = {}
+if SQLALCHEMY_DATABASE_URL.startswith("sqlite"):
+  connect_args = {"check_same_thread": False}
 
-connect_args = {"check_same_thread": False} if settings.DB_URL.startswith("sqlite") else {}
-engine = create_engine(settings.DB_URL, connect_args=connect_args, pool_pre_ping=True)
-SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+engine = create_engine(
+    SQLALCHEMY_DATABASE_URL,
+    connect_args=connect_args,
+)
+
+SessionLocal = sessionmaker(
+    autocommit=False,
+    autoflush=False,
+    bind=engine,
+)
+
+Base = declarative_base()
+
+
+def get_db() -> Generator:
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()

@@ -245,6 +245,8 @@ stages:
                 $(dockerHubNamespace)/$(apiImageName):$(imageTag)
               appSettings: |
                 -APP_ENV qa
+                -DATABASE_URL sqlite:////home/app.db
+
 
           # Deploy WEB QA como contenedor
           - task: AzureWebAppContainer@1
@@ -296,6 +298,8 @@ stages:
                 $(dockerHubNamespace)/$(apiImageName):$(imageTag)
               appSettings: |
                 -APP_ENV prod
+                -DATABASE_URL sqlite:////home/app.db
+
 
           # Deploy WEB PROD como contenedor
           - task: AzureWebAppContainer@1
