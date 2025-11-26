@@ -31,9 +31,6 @@ backend/environments/
 backend/data/
 backend/app.db
 
-#SQLite local
-backend/app/db.py
-
 ############################
 # Node / Angular / Frontend
 ############################
