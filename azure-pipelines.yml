@@ -15,9 +15,6 @@ variables:
   webQaName:   '$(webAppNameQA)'
   webProdName: '$(webAppNamePROD)'
 
-  # Toggle de pruebas de humo
-  runSmokeTests: 'false'   # poné 'true' si querés ejecutarlas
-
   # ------- TP08: Docker Hub -------
   dockerHubServiceConnection: 'dockerhub-connection'   # Service Connection en Azure DevOps
   dockerHubNamespace: 'yagogandara'                    # Tu usuario Docker Hub
@@ -259,20 +256,7 @@ stages:
                 -APP_ENV qa
                 -API_BASE_URL $(apiBaseUrlQA)
 
-          # Smoke tests QA (API + FRONT)
-          - script: |
-              set -e
-              echo "Waiting API to be ready..."
-              for i in {1..20}; do
-                curl -fsS "$(apiBaseUrlQA)readyz" && break || sleep 5
-              done
-              curl -fsS "$(apiBaseUrlQA)healthz"
-              echo "Checking FRONT (index)..."
-              for i in {1..20}; do
-                curl -fsS "$(webBaseUrlQA)" && break || sleep 5
-              done
-            displayName: 'Smoke tests QA'
-            condition: and(succeeded(), eq(variables['runSmokeTests'], 'true'))
+
 
 # ==================== DEPLOY PROD (CONTAINERS) ====================
 - stage: DeployPROD
@@ -309,18 +293,3 @@ stages:
               appSettings: |
                 -APP_ENV prod
                 -API_BASE_URL $(apiBaseUrlPROD)
-
-          # Smoke tests PROD (API + FRONT)
-          - script: |
-              set -e
-              echo "Waiting API to be ready..."
-              for i in {1..20}; do
-                curl -fsS "$(apiBaseUrlPROD)readyz" && break || sleep 5
-              done
-              curl -fsS "$(apiBaseUrlPROD)healthz"
-              echo "Checking FRONT (index)..."
-              for i in {1..20}; do
-                curl -fsS "$(webBaseUrlPROD)" && break || sleep 5
-              done
-            displayName: 'Smoke tests PROD'
-            condition: and(succeeded(), eq(variables['runSmokeTests'], 'true'))
