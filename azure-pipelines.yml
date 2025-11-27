@@ -210,7 +210,6 @@ stages:
         buildContext: 'backend'
         tags: |
           $(imageTag)
-          latest
 
     - task: Docker@2
       displayName: 'Build & Push Web image'
@@ -222,7 +221,6 @@ stages:
         buildContext: 'frontend'
         tags: |
           $(imageTag)
-          latest
 
 # ==================== DEPLOY QA (CONTAINERS) ====================
 - stage: DeployQA
@@ -261,6 +259,19 @@ stages:
                 -APP_ENV qa
                 -API_BASE_URL $(apiBaseUrlQA)
 
+          - script: |
+              set -e
+              curl -fsS "$(apiBaseUrlQA)/healthz" > /dev/null
+              echo "✅ API QA OK"
+            displayName: 'Smoke: API QA'
+            timeoutInMinutes: 5
+
+          - script: |
+              set -e
+              curl -fsS "$(webBaseUrlQA)/" > /dev/null
+              echo "✅ WEB QA OK"
+            displayName: 'Smoke: WEB QA'
+            timeoutInMinutes: 5
 
 
 # ==================== DEPLOY PROD (CONTAINERS) ====================
@@ -298,3 +309,17 @@ stages:
               appSettings: |
                 -APP_ENV prod
                 -API_BASE_URL $(apiBaseUrlPROD)
+
+          - script: |
+              set -e
+              curl -fsS "$(apiBaseUrlPROD)/healthz" > /dev/null
+              echo "✅ API PROD OK"
+            displayName: 'Smoke: API PROD'
+            timeoutInMinutes: 5
+
+          - script: |
+              set -e
+              curl -fsS "$(webBaseUrlPROD)/" > /dev/null
+              echo "✅ WEB PROD OK"
+            displayName: 'Smoke: WEB PROD'
+            timeoutInMinutes: 5
