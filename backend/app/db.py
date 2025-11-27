@@ -4,16 +4,17 @@ from typing import Generator
 from sqlalchemy import create_engine
 from sqlalchemy.orm import declarative_base, sessionmaker
 
-
-# Si viene DATABASE_URL por entorno, la usamos.
-# Si no, usamos el default local sqlite:///./app.db
-SQLALCHEMY_DATABASE_URL = os.getenv(
-    "DATABASE_URL",
-    "sqlite:///./app.db",
+# Prioridad:
+# 1) DATABASE_URL (nueva)
+# 2) DB_URL       (legacy de TP05)
+# 3) default local ./app.db
+SQLALCHEMY_DATABASE_URL = (
+    os.getenv("DATABASE_URL")
+    or os.getenv("DB_URL")
+    or "sqlite:///./app.db"
 )
 
-# Para SQLite necesitamos connect_args especiales
-connect_args = {}
+connect_args: dict = {}
 if SQLALCHEMY_DATABASE_URL.startswith("sqlite"):
     connect_args = {"check_same_thread": False}
 

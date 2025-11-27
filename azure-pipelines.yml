@@ -246,6 +246,8 @@ stages:
               appSettings: |
                 -APP_ENV qa
                 -DATABASE_URL sqlite:////home/app.db
+                -DB_URL sqlite:////home/data/app.db
+
 
 
           # Deploy WEB QA como contenedor
@@ -299,6 +301,8 @@ stages:
               appSettings: |
                 -APP_ENV prod
                 -DATABASE_URL sqlite:////home/app.db
+                -DB_URL sqlite:////home/data/app.db
+
 
 
           # Deploy WEB PROD como contenedor
