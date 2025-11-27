@@ -4,7 +4,7 @@ from fastapi.responses import JSONResponse
 from sqlalchemy import text
 from sqlalchemy.exc import OperationalError
 
-from .db import engine, SessionLocal
+from .db import engine, SessionLocal, SQLALCHEMY_DATABASE_URL
 from .models import Base
 from .config import settings
 from fastapi.middleware.cors import CORSMiddleware
@@ -80,11 +80,25 @@ def readyz():
 # --- DEBUG ---
 @app.get("/admin/debug")
 def debug():
-    return {
-        "db_url": settings.DB_URL,
-        "db_file_exists": os.path.exists("/home/data/app.db"),
-    }
+    # Deducción básica de la ruta de archivo a partir de la URL de SQLite
+    db_url = SQLALCHEMY_DATABASE_URL
+    db_path: str | None = None
 
+    if db_url.startswith("sqlite:////"):
+        # Ej: sqlite:////home/app.db  -> /home/app.db
+        db_path = db_url.replace("sqlite:////", "/", 1)
+    elif db_url.startswith("sqlite:///"):
+        # Ej: sqlite:///./app.db      -> ./app.db
+        db_path = db_url.replace("sqlite:///", "", 1)
+
+    file_exists = os.path.exists(db_path) if db_path else False
+
+    return {
+        "env": settings.ENV,
+        "db_url": db_url,
+        "db_path": db_path,
+        "db_file_exists": file_exists,
+    }
 
 @app.get("/admin/touch")
 def touch():
