@@ -9,9 +9,9 @@ from sqlalchemy.orm import declarative_base, sessionmaker
 # 2) DB_URL       (legacy de TP05)
 # 3) default local ./app.db
 SQLALCHEMY_DATABASE_URL = (
-    os.getenv("DATABASE_URL")
-    or os.getenv("DB_URL")
-    or "sqlite:///./app.db"
+    os.getenv("DATABASE_URL") or
+    os.getenv("DB_URL") or
+    "sqlite:///./app.db"
 )
 
 connect_args: dict = {}
