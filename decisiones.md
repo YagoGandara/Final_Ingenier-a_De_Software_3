@@ -1,6 +1,11 @@
 # Decisiones técnicas – TP08 Docker + Coverage + E2E
 
-Este documento resume **qué se hizo, por qué y cómo** se tomaron las decisiones técnicas al evolucionar la app de TP05/TP06/TP07 hacia el TP08 con Docker, más lógica de negocio, más tests y un pipeline de CI/CD completo.
+Este documento resume **qué se hizo, por qué y cómo** se tomaron las decisiones técnicas al evolucionar la app de TP05/TP06/TP07 hacia el TP08 con:
+
+- 2 imágenes Docker (API + WEB) desplegadas en Azure App Service (QA y PROD).
+- Más reglas de negocio (títulos, descripciones, filtros, stats avanzados).
+- Más tests unitarios (front + back), tests de integración y E2E (Cypress).
+- Persistencia real de datos con SQLite en almacenamiento persistente del App Service.
 
 ---
 
@@ -10,45 +15,70 @@ Este documento resume **qué se hizo, por qué y cómo** se tomaron las decision
 
 - Se decidió **separar físicamente** frontend y backend en **dos imágenes Docker**:
   - `todos-api`: FastAPI + SQLite.
-  - `todos-web`: Angular build estático.
+  - `todos-web`: Angular 18 build estático.
 - Motivos:
   - Reflejar una arquitectura realista (SPA + API independiente).
-  - Permitir escalar por separado front y back en Azure App Service.
-  - Cumplir explícitamente con el requerimiento de la cátedra: *“Asegurarse que son 2 imágenes (back y front), esas 2 van a QA y a prod”*.
+  - Permitir escalar y diagnosticar por separado front y back en Azure App Service.
+  - Cumplir el requerimiento de la cátedra: *“Asegurarse que son 2 imágenes (back y front), esas 2 van a QA y a prod”*.
 
-Las dos imágenes se construyen **una sola vez por commit** y se publican en Docker Hub con tag `BuildId` y `latest`. QA y PROD referencian **las mismas imágenes**
+Las imágenes se construyen **una sola vez por commit** y se publican en Docker Hub con tag `$(Build.BuildId)` y `latest`. QA y PROD referencian **las mismas imágenes** → *build once, deploy many*.
 
 ### 1.2. Mismo artefacto para QA y PROD
 
-- Tanto para API como para WEB, la estrategia es:
-  - **Build once, deploy many**.
-  - La diferencia entre QA y PROD se maneja **vía variables de entorno** del App Service (por ejemplo `API_BASE_URL`, `ENV`, `DB_URL`).
+- API y WEB se construyen una vez en el stage **Build** del pipeline.
+- La diferencia entre QA y PROD se maneja únicamente con **variables de entorno** en cada Web App:
+  - `APP_ENV`, `DB_URL` / `DATABASE_URL`, `API_BASE_URL`, etc.
 - Beneficios:
   - Lo que se prueba en QA es exactamente lo que se despliega a PROD.
-  - Se simplifica el pipeline: no hay builds distintos por entorno.
+  - Se evita duplicar lógica de build por entorno y se simplifica el pipeline.
 
 ---
 
 ## 2. Base de datos
 
-### 2.1. SQLite por entorno
+### 2.1. SQLite por entorno con persistencia real
 
-- Se eligió **SQLite** como motor de base de datos, con archivo persistido en `/home/data/app.db` dentro de cada Web App (contenedor).
-- Motivos:
-  - No generar costos extra de infraestructura (SQL Server, Postgres administrado, etc.).
-  - Suficiente para el volumen y complejidad del TP.
-- Cada entorno (QA/PROD/local) tiene su **archivo de DB independiente**, aislado por host y volumen de contenedor.
+Se eligió **SQLite** como motor de base de datos, con archivo **persistente** en:
+
+```text
+/home/data/app.db
+```
+
+dentro de cada Web App (contenedor).
+
+**Motivos:**
+
+- No generar costos adicionales (no se usa un servidor de DB administrado).
+- Suficiente para el volumen y complejidad del TP.
+- La carpeta `/home` en App Service se mantiene entre redeploys → la data no se pierde.
+- Cada entorno (QA / PROD / local) tiene su archivo de DB independiente, aislado por host y volumen del contenedor.
 
 ### 2.2. Creación de tablas y seed
 
-- El ORM (SQLAlchemy) ejecuta `Base.metadata.create_all(bind=engine)` al iniciar la app.
-- La carga de datos inicial no se hace automáticamente en PROD; se expone un endpoint de administración:
+El ORM (SQLAlchemy) ejecuta `Base.metadata.create_all(bind=engine)` al iniciar la app, asegurando que la tabla `todos` exista antes de servir requests.
 
-  - `POST /admin/seed` protegido por header `X-Seed-Token` y variable `SEED_TOKEN`.
-  - El seed **no hace nada** si la tabla ya tiene filas, para evitar duplicados.
-  - Esto permite correr el seed de manera controlada (por ejemplo, desde Postman o scripts de mantenimiento).
+Se expone un endpoint de seed controlado:
 
-Decisión: **no autoseedear PROD** para evitar tocar datos de producción sin control; en QA se puede habilitar `SEED_ON_START` para acelerar pruebas.
+- `POST /admin/seed` protegido con header `X-Seed-Token` + variable `SEED_TOKEN`.
+- El seed no hace nada si la tabla ya tiene filas (**idempotente**).
+- Se puede además activar `SEED_ON_START=true` en QA para acelerar pruebas automatizadas.
+- Decisión: **no** autoseedear PROD para evitar modificaciones no controladas sobre datos reales.
+
+### 2.3. Resolución de `DB_URL` / `DATABASE_URL`
+
+La URL de SQLAlchemy se resuelve así:
+
+```python
+SQLALCHEMY_DATABASE_URL = (
+    os.getenv("DATABASE_URL")
+    or os.getenv("DB_URL")
+    or "sqlite:///./app.db"
+)
+```
+
+- En QA/PROD se define `DB_URL=sqlite:////home/data/app.db`.
+- En local/CI, si no hay variables, se usa `sqlite:///./app.db` (archivo junto a la app).
+- Si la URL es SQLite con path absoluto, el backend se asegura de que el directorio exista antes de crear el engine.
 
 ---
 
@@ -56,33 +86,29 @@ Decisión: **no autoseedear PROD** para evitar tocar datos de producción sin co
 
 ### 3.1. Backend – App Settings
 
-Variables principales en App Service (API):
+Variables principales en la Web App de API (QA / PROD):
 
-1. `ENV`: etiqueta de entorno (`qa`, `prod`, `local`), útil para logs y health.
-2. `DB_URL`: cadena SQLAlchemy, por ejemplo `sqlite:////home/data/app.db`.
-3. `CORS_ORIGINS`: lista de orígenes permitidos para el front (por entorno).
-4. `SEED_TOKEN`: secreto para `/admin/seed`.
-5. `SEED_ON_START`: flag para permitir seed automático al iniciar (sólo QA/staging).
+- `APP_ENV`: etiqueta de entorno (`qa`, `prod`, `local`) → se expone en `/admin/debug`.
+- `DATABASEB_URL`: cadena SQLAlchemy, ej: `sqlite:////home/data/app.db`.
+- `SEED_TOKEN`: secreto para `/admin/seed`.
+- `SEED_ON_START`: `true` solo en QA si se desea seed automático.
 
-Decisión: **todo comportamiento sensible (DB, CORS, seed) se controla por configuración**, sin re-build de imagen.
+**Decisión:** todo lo sensible (DB, CORS, seed) se define por configuración, sin re-compilar.
 
-### 3.2. Frontend – `env.js` + environment.ts
+### 3.2. Frontend – `env.js` + `environment.ts`
 
-- El frontend lee la base de la API desde:
+El frontend obtiene la URL base de la API desde:
 
-  1. `window.__env.apiBase` (inyectado en `assets/env.js` en runtime).
-  2. `environment.apiBaseUrl` como fallback para desarrollo local.
+- `window.__env.apiBase` (objeto generado en `assets/env.js` en runtime, a partir de `API_BASE_URL` en la Web App), o
+- `environment.apiBaseUrl` como fallback para desarrollo local.
 
-- El valor se normaliza para evitar dobles barras:
+El valor se normaliza para evitar dobles barras:
 
-  ```ts
-  (window.__env?.apiBase || environment.apiBaseUrl || '').replace(/\/+$/, '')
-  ```
+```ts
+(window.__env?.apiBase || environment.apiBaseUrl || '').replace(/\/+$/, '')
+```
 
-Decisiones:
-
-- Mantener un único build de Angular y **cambiar sólo `env.js` por entorno** usando la variable `API_BASE_URL` en el contenedor.
-- Esto simplifica el pipeline y permite pruebas E2E usando la misma imagen que se va a PROD.
+**Decisión:** mantener un único build Angular y cambiar solo `env.js` por entorno, lo que simplifica CI/CD y asegura que QA y PROD usan exactamente la misma SPA.
 
 ---
 
@@ -90,44 +116,61 @@ Decisiones:
 
 ### 4.1. Separación de lógica de dominio
 
-Se extrajo la lógica de negocio a un módulo dedicado (`logic.py`):
+La lógica de negocio se concentra en `logic.py`:
 
-- `normalize_title(text: str) -> str`  
-  - Quita espacios extra y hace trim, para evitar títulos “distintos” que son iguales visualmente.
-- `validate_new_todo(title: str, existing_titles: list[str])`  
-  - Regla “título no vacío” → excepción específica.
-  - Regla “títulos únicos, case-insensitive” → excepción específica.
-- `filter_todos(todos, q: str | None, done: bool | None)`  
-  - Reutilizada por `/api/todos/search`.
-- `compute_stats(todos)`  
-  - Calcula `total`, `done`, `pending` a partir de la lista actual.
+- `normalize_title(text: str) -> str`
+  - Hace trim y compacta espacios internos.
+  - Evita considerar títulos distintos cadenas que visualmente son iguales.
+- `validate_new_todo(title: str, existing_titles: list[str])`
+  - Valida:
+    - título no vacío,
+    - títulos únicos (case-insensitive) sobre la lista existente.
+- `filter_todos(todos, q: str | None, done: bool | None)`
+  - Filtro por texto que busca en título y descripción.
+  - Filtra por estado `done` si se indica.
+- `compute_stats(todos)`
+  - Calcula `total`, `done`, `pending`.
 
-Motivo: poder testear la lógica de negocio **de forma pura** (sin DB ni HTTP) y reutilizarla en los endpoints.
+**Motivo:** hacer la lógica testeable de forma pura (sin HTTP ni DB) y reutilizable desde los endpoints.
 
 ### 4.2. Endpoints de negocio
 
-- `POST /api/todos`
-  - Usa `normalize_title` + `validate_new_todo` antes de persistir.
-  - Evita TODOs vacíos o duplicados.
-- `GET /api/todos/stats`
-  - Usa `compute_stats` sobre los registros actuales.
-  - Justifica tener un resumen en el front y tests de stats en backend.
-- `GET /api/todos/search`
-  - Aplica `filter_todos` a la lista en memoria:
-    - `q` filtra por título/descripcion, case-insensitive.
-    - `done` permite ver sólo pendientes o sólo hechos.
-- `PATCH /api/todos/{id}/toggle`
-  - Invierte el flag `done` y devuelve el TODO actualizado.
-  - Facilita un flujo de negocio realista (marcar tareas como hechas) para tests E2E.
+- `POST /api/todos`:
+  - Aplica `normalize_title` + `validate_new_todo`.
+  - Persiste `title` normalizado y `description` opcional.
+  - Respuestas relevantes:
+    - `400` si el título está vacío (`title must not be empty`).
+    - `400` si el título ya existe (`title must be unique`).
+
+- `GET /api/todos/stats`:
+  - Usa `compute_stats` para devolver resumen de tareas (hechas / pendientes / total).
+
+- `GET /api/todos/search`:
+  - Usa `filter_todos`:
+    - `q` busca en título y descripción, case-insensitive.
+    - `done` permite listar solo pendientes o solo hechas.
+
+- `PATCH /api/todos/{id}/toggle`:
+  - Invierte el campo `done`.
+  - `404` si el `id` no existe.
 
 ### 4.3. Endpoints administrativos
 
 - `/admin/debug`:
-  - Devuelve info sobre `DB_URL` y si el archivo de DB existe.
-  - Decisión: incluir una herramienta de diagnóstico simple sin exponer datos sensibles.
+  - Devuelve:
+    - `env`,
+    - `db_url` efectivo,
+    - `db_path`,
+    - `db_file_exists` (booleano).
+  - Se usa para diagnosticar problemas de configuración de DB y asegurar que se está usando `/home/data/app.db`.
+
 - `/admin/touch`:
-  - Devuelve `{"count": n}` con el total de TODOs.
-  - Útil para health checks y verificación de que la DB responde.
+  - Devuelve `{"count": n}`.
+  - Útil como smoke test de DB desde el pipeline o herramientas externas.
+
+- `/admin/seed`:
+  - Solo funciona si el `X-Seed-Token` coincide con `SEED_TOKEN`.
+  - Permite poblar la DB con datos demo de forma controlada.
 
 ---
 
@@ -135,39 +178,71 @@ Motivo: poder testear la lógica de negocio **de forma pura** (sin DB ni HTTP) y
 
 ### 5.1. División de responsabilidades
 
-- `ApiService`:
-  - Encapsula todas las llamadas HTTP a la API (`health`, `listTodos`, `addTodo`, `stats`, `searchTodos`, `toggleTodo`).
-  - Es la única pieza que conoce la URL base y la forma exacta de los endpoints.
-- `AppComponent`:
-  - Se enfoca en **manejar estado y UX**:
-    - signals para `todos`, `stats`, `filters`, `loading`, `error`.
-    - Decide cuándo refrescar stats, qué mensaje mostrar, cómo mapear select a `done=true/false`.
+**`ApiService`:**
 
-Decisión: seguir el patrón “smart component + service” para que:
-- el service sea fácil de testear con `HttpTestingController`,
-- el componente tenga tests independientes, usando un stub de `ApiService`.
+- Encapsula el acceso HTTP:
+  - `health()`, `listTodos()`, `addTodo()`, `stats()`, `searchTodos()`, `toggleTodo()`.
+- Es el único lugar que conoce la URL base y rutas concretas.
 
-### 5.2. UX y reglas en el front
+**`AppComponent`:**
 
-- Validación mínima del título en el componente:
-  - Si `newTitle` está vacío o son sólo espacios, no se llama al service.
-  - El título se trimea antes de enviar al backend.
-- Manejo de errores:
-  - Errores de red/500 se mapean a mensajes genéricos.
-  - Status 400 con mensaje de título duplicado se muestra de forma específica (“Ya existe una tarea con ese título”). Se decidió no exponer el texto crudo del backend, sino un mensaje controlado.
-- Refresh de stats:
-  - Después de `add()` y `toggle()` el componente vuelve a llamar a `stats()`.
-  - Decisión explícita: evitar mostrar números stale de resumen.
+- Maneja el estado de la UI con signals:
+  - `todos`, `stats`, `extendedStats`, `filters`, `health`, `loading`, `error`.
+- Decide cuándo refrescar stats, aplicar filtros y mostrar mensajes.
 
-### 5.3. Filtros y resumen
+Este patrón “servicio + componente” permite tests claros de API y de lógica de UI por separado.
 
-- Se decidió incluir una sección de **“Resumen”** en el front:
-  - Muestra `Total / Pendientes / Hechas`.
-  - Tiene un formato fijo `Total: X · Pendientes: Y · Hechas: Z`, fácil para controlar en Cypress.
-- Se agregó sección de **Filtros**:
-  - Input de texto + select (Todas/Pendientes/Hechas).
-  - Se consume el nuevo endpoint `/api/todos/search`.
-  - Decisión: centralizar toda la lógica de filtrado en el backend para mantener la app realista (backend-driven).
+### 5.2. Reglas de UI y negocio en el front
+
+**Validación de título:**
+
+- Si `newTitle` está vacío o son solo espacios → no llama al backend.
+- Aplica `trim()` antes de construir el payload `{ title, description }`.
+
+**Manejo de descripción:**
+
+- El formulario incluye campo **Descripción (opcional)**.
+- Si el usuario la completa, se envía al backend y se muestra debajo del título en la lista.
+- En la UI se distingue entre todos “Con descripción” y “Sin descripción” en el resumen avanzado.
+
+**Manejo de errores:**
+
+- Si la API responde `400` por título duplicado, se muestra un mensaje específico:
+  - “Ya existe una tarea con ese título”.
+- Para otros errores (network, `500`, etc.) se muestra un mensaje genérico.
+- Se utiliza una bandera `loading` para evitar dobles submits y acciones mientras hay requests en vuelo.
+
+### 5.3. Filtros y resumen (básico y avanzado)
+
+**Resumen básico:**
+
+- Datos desde `GET /api/todos/stats`:
+  - Total,
+  - Pendientes,
+  - Hechas.
+
+**Filtros:**
+
+- Input de texto (filtro por título o descripción).
+- Select con opciones `Todas`, `Pendientes`, `Hechas`.
+
+**Método `applyFilters()`:**
+
+- Mapea el select a `done=true/false` o `null`.
+- Llama a `ApiService.searchTodos(q, done)`.
+- Actualiza `todos` y recalcula el resumen avanzado sobre la lista visible.
+
+**Resumen avanzado (front):**
+
+Calculado en el componente a partir de la lista actual:
+
+- Cantidad de TODOs “Con descripción” y “Sin descripción”.
+- Clasificación de títulos por longitud:
+  - Cortos (≤10),
+  - Medianos (11–25),
+  - Largos (≥26).
+
+Esta lógica se testea en los unit tests del componente y se valida indirectamente en los E2E.
 
 ---
 
@@ -175,179 +250,222 @@ Decisión: seguir el patrón “smart component + service” para que:
 
 ### 6.1. Backend – Unit tests (lógica pura)
 
-- Framework: `pytest`.
-- Se testea `logic.py` en forma aislada:
-  - `normalize_title`: trimming, espacios internos, cadenas raras.
-  - `validate_new_todo`: casos de éxito, título vacío, duplicado (case-insensitive).
-  - `filter_todos`: combinaciones de `q` y `done`.
-  - `compute_stats`: diferentes combinaciones de TODOs para comprobar `total`, `done`, `pending`.
+Framework: **pytest**.
 
-Decisión: concentrar la lógica de negocio en funciones puras permite tests rápidos, robustos y fáciles de mantener.
+Se testea `logic.py` de forma aislada:
 
-### 6.2. Backend – Tests de rutas (con y sin DB real)
+- Normalización del título (`normalize_title`).
+- Validación de nuevos TODOs (`validate_new_todo`): éxito, vacío, duplicado.
+- Filtrado (`filter_todos`) con combinaciones de `q` y `done` sobre título y descripción.
+- Stats (`compute_stats`): distintos escenarios de hechos/pendientes.
 
-- Se usan dos estrategias:
+**Decisión:** la lógica de dominio es donde están las reglas importantes, se garantiza buena cobertura y tests rápidos.
 
-  1. **FakeStore / override de dependencias**:
-     - Para algunos tests se reemplaza el acceso a la DB con un `FakeStore` que implementa los métodos `list`, `add`, etc.
-     - Se usa `app.dependency_overrides[...]` para inyectar el fake.
-     - Permite testear la lógica HTTP (status codes, body) sin depender de la DB.
+### 6.2. Backend – Tests de rutas
 
-  2. **SQLite real para integración**:
-     - Otros tests usan la configuración real de DB (SQLite en memoria o archivo de test).
-     - Garantiza que el wiring ORM + FastAPI está bien armado.
+Se combinan dos enfoques:
 
-- Casos cubiertos:
-  - `/healthz` responde 200 con el payload esperado.
-  - `/api/todos` GET devuelve la lista correcta.
-  - `/api/todos` POST:
-    - caso feliz,
-    - título vacío (400),
-    - título duplicado (400).
-  - `/api/todos/stats` cuenta correctamente hechos/pendientes.
-  - `/api/todos/search` respeta filtros.
-  - `PATCH /api/todos/{id}/toggle` cambia `done` y responde 404 cuando corresponde.
-  - `/admin/seed`:
-    - 401 si el token no coincide,
-    - caso exitoso mockeando la función de seed.
+1. **Override de dependencias / FakeStore:**
+   - Se reemplaza la dependencia de almacenamiento (`Store`) por un fake en algunos tests.
+   - Se verifica el contrato HTTP (status, body, mensajes de error) sin depender de SQLite.
 
-Decisión: mezclar unit e integración da buena cobertura sin perder velocidad en CI.
+2. **DB real para integración:**
+   - Otros tests usan SQLite real de test.
+   - Verifican wiring FastAPI + SQLAlchemy + rutas (incluidos endpoints de admin).
+
+Casos cubiertos:
+
+- `/healthz` (200 simple).
+- `/api/todos` (listar + crear con/ sin descripción).
+- Reglas de título vacío y duplicado.
+- `/api/todos/stats` y `/api/todos/search` (contar y filtrar correctamente).
+- `PATCH /api/todos/{id}/toggle` (cambio de `done` y `404` si no existe).
+- `/admin/seed`, `/admin/touch`, `/admin/debug` en distintos escenarios.
 
 ### 6.3. Frontend – Unit tests
 
-- Framework: Angular 18 + Karma + Jasmine.
+Framework: **Angular 18 + Karma + Jasmine**.
 
 #### 6.3.1. `ApiService`
 
 - Se usa `HttpClientTestingModule` + `HttpTestingController`.
-- Se fuerza `window.__env.apiBase = 'http://fake-api/'` para simular el `env.js` del pipeline.
+- Se simula `window.__env = { apiBase: 'http://fake-api/' }`.
 - Se verifica que:
   - `health()` haga `GET http://fake-api/healthz`.
-  - `listTodos()` haga `GET http://fake-api/api/todos`.
-  - `addTodo()` haga `POST` correcto.
-  - `stats()`, `searchTodos()`, `toggleTodo()` llamen a los endpoints adecuados con query params correctos.
-
-Decisión: Si cambia la ruta de la API, estos tests fallan y obligan a ajustar el servicio (contrato HTTP explícito).
+  - `listTodos()` → `GET http://fake-api/api/todos`.
+  - `addTodo()` → `POST http://fake-api/api/todos` con `{ title, description }`.
+  - `stats()` → `GET /api/todos/stats`.
+  - `searchTodos()` arme correctamente `q` y `done` en query params.
+  - `toggleTodo(id)` → `PATCH http://fake-api/api/todos/{id}/toggle`.
 
 #### 6.3.2. `AppComponent`
 
-- Se testea la **clase** con un stub de `ApiService` (spies Jasmine).
-- Casos cubiertos:
-  - `ngOnInit/constructor` llama `health()`, `listTodos()` y `stats()` y carga estado inicial.
-  - `add()`:
-    - ignora títulos vacíos,
-    - trim del título,
-    - agrega el TODO a la lista,
-    - limpia `newTitle`,
-    - maneja `loading`/`error`,
-    - hace refresh de stats.
-  - `toggle()`:
-    - llama al service,
-    - actualiza la lista,
-    - refresca stats,
-    - maneja errores.
-  - `applyFilters()`:
-    - mapea el filtro de UI a `done=true/false`,
-    - actualiza `todos` y `loading` en función de la respuesta.
+Se testeó la clase usando un stub de `ApiService` y *spies* de Jasmine.
 
-Decisión: probar lógica de front sin depender de DOM, para tests rápidos y estables.
+Casos cubiertos:
+
+- Carga inicial (`ngOnInit`): llama `health`, `listTodos`, `stats`.
+- `add()`:
+  - Ignora títulos vacíos o con solo espacios.
+  - Aplica `trim()`.
+  - Envía descripción si existe.
+  - Agrega el TODO a `todos`.
+  - Limpia `newTitle` / `newDescription`.
+  - Cambia `loading` correctamente y maneja errores (incluyendo título duplicado).
+  - Refresca `stats` con `ApiService.stats()`.
+- `toggle()`:
+  - Llama a `toggleTodo(id)`.
+  - Actualiza el ítem en la lista.
+  - Refresca `stats` y maneja error/loading.
+- `applyFilters()`:
+  - Mapea el filtro de UI a `done`.
+  - Llama a `searchTodos()`.
+  - Actualiza `todos`.
+  - Recalcula el resumen avanzado (incluyendo métricas de descripción y longitud de título).
 
 ### 6.4. E2E – Cypress (Front + Back reales)
 
-- Herramienta: Cypress 13 en modo `chrome --headless`.
-- Scripts:
-  - `npm run e2e`:
-    - levanta `ng serve`,
-    - corre Cypress contra `http://localhost:4200`.
-- Requisito: API levantada en `http://localhost:8080` (en CI se levanta con `uvicorn` en background).
+Herramienta: **Cypress 13**, modo `chrome --headless`.
 
-#### 6.4.1. Escenarios E2E
+Script `npm run e2e`:
 
-- `smoke.cy.ts`:
-  - Verifica que Angular carga correctamente en `/`.
+- `ng serve` en <http://localhost:4200>.
+- Cypress se ejecuta contra esa URL.
 
-- `todos.cy.ts`:
-  - Carga home, ve sección de Todos, filtros y card de Resumen.
-  - Crear un TODO:
-    - aparece en el listado,
-    - el input se limpia,
-    - el resumen sigue presente con formato válido.
-  - Toggle:
-    - el botón cambia de “Marcar como hecha” a “Marcar como pendiente”.
-  - Título duplicado:
-    - muestra mensaje de error “Ya existe una tarea con ese título”.
+Requisito: API levantada en <http://localhost:8080> (el pipeline la levanta con `uvicorn` en background).
 
-Decisión importante: **no** asertar deltas numéricos exactos (`before + 1`, etc.) en stats en E2E, porque:
-- la DB puede tener datos previos,
-- hay concurrencia de requests,
-- eso vuelve los tests frágiles sin agregar valor real, dado que la lógica numérica ya está cubierta en backend unit/integración.
+Escenarios principales:
+
+- **Smoke:**
+  - Verifica que la app Angular carga en `/` y que existe `<app-root>`.
+
+- **Flows de TODOs:**
+  - Crear un TODO con descripción:
+    - El ítem aparece en el listado con título + descripción.
+    - El formulario se limpia.
+    - El resumen avanzado refleja que hay al menos un ítem “Con descripción”.
+  - Crear un TODO sin descripción.
+  - Toggle de estado (pendiente ↔ hecha).
+  - Manejo de título duplicado, mostrando el mensaje de error correcto.
+
+**Decisión:** en E2E se evita depender de deltas numéricos exactos en las stats porque la base puede tener datos previos; la lógica numérica ya está probada en unit/integración.
 
 ---
 
-## 7. CI/CD – Azure DevOps + Sonar + Docker
+## 7. CI/CD – Azure DevOps + SonarCloud + Docker
 
 ### 7.1. Stage Build
 
-- Se ejecuta en cada push a `main`.
-- Pasos clave:
-  1. Preparar toolchains (Node + Python).
-  2. **Backend**: instalar deps, correr `flake8`, `pytest` con coverage, publicar resultados.
-  3. Levantar API (uvicorn) en background para E2E.
-  4. **Frontend**: `npm ci`, `npm run test:ci`, `npm run e2e` (Cypress).
-  5. Ejecutar análisis de SonarCloud y Quality Gate.
-  6. Construir y publicar imágenes Docker de API y WEB en Docker Hub.
+Se ejecuta en cada push a `main`. Pasos principales:
 
-Decisión: el stage `Build` es un **quality gate fuerte**. Si cualquiera de estas cosas falla (tests, coverage, Sonar), el pipeline no avanza a despliegue.
+**Preparar toolchains:**
+
+- `NodeTool@0` (Node 20.x).
+- `UsePythonVersion@0` (Python 3.12).
+
+**SonarCloud Prepare:**
+
+- Usa `sonar-project.properties`.
+- Lee coverage:
+  - Python: `backend/coverage.xml`.
+  - TS/JS: `frontend/coverage/lcov.info`.
+- Excluye `node_modules`, `dist`, `frontend/cypress`, `.spec.ts`.
+
+**Backend:**
+
+- `pip install -r requirements.txt`.
+- `flake8 app`.
+- `pytest --cov=app ...` genera `coverage.xml` y `TEST-backend.xml`.
+- Se publican resultados y coverage como artefactos del build.
+
+**Levantar API para Cypress:**
+
+- `uvicorn app.main:app --host 0.0.0.0 --port 8080` en background.
+- Loop de espera sobre `http://localhost:8080/healthz`.
+
+**Frontend:**
+
+- `npm ci` (fallback a `npm i --legacy-peer-deps` si hace falta).
+- `npm run test:ci` → unit tests + coverage.
+- Publicación de resultados JUnit y Cobertura.
+- Limpieza de resultados viejos de Cypress.
+- `npm run e2e` → Cypress contra `http://localhost:4200`.
+- Publicación de resultados E2E JUnit.
+
+**SonarCloud Analyze + Publish:**
+
+- Ejecuta análisis.
+- Quality Gate actúa como corte duro: si no pasa, no se despliega.
+
+**Docker:**
+
+- Build & push `todos-api` y `todos-web` a Docker Hub con tags `$(Build.BuildId)` y `latest`.
 
 ### 7.2. Stages DeployQA y DeployPROD
 
-- Ambos stages dependen de que `Build` termine OK (`condition: succeeded()`).
-- `DeployQA`:
-  - Despliega la imagen `todos-api` a la Web App de API QA.
-  - Despliega la imagen `todos-web` a la Web App de WEB QA.
-  - Inyecta `APP_ENV=qa` y `API_BASE_URL` con la URL de la API QA.
-  - Opcionalmente ejecuta smoke tests contra `readyz`, `healthz` y el front.
-- `DeployPROD`:
-  - Idéntico a QA pero apuntando a PROD.
-  - Protegido por **aprobación manual** en el Environment `PROD`.
-  - Reutiliza las mismas imágenes Docker (`BuildId`) ya verificadas en QA.
+Ambos dependen de **Build** (`condition: succeeded()`).
 
-Decisión: mostrar explícitamente la **promoción de un mismo build** de QA a PROD con gate humano, como pide la cátedra.
+**DeployQA:**
+
+- **WebApp API QA:**
+  - Usa imagen `todos-api:$(Build.BuildId)`.
+  - App Settings: `APP_ENV=qa` (DB y otros se gestionan directo en el Web App).
+- **WebApp WEB QA:**
+  - Usa imagen `todos-web:$(Build.BuildId)`.
+  - App Settings:
+    - `APP_ENV=qa`.
+    - `API_BASE_URL=$(apiBaseUrlQA)`.
+- Opcional: smoke tests llamando a `/readyz`, `/healthz` y al index del front.
+
+**DeployPROD:**
+
+- Igual a QA pero con:
+  - WebApps de PROD.
+  - `APP_ENV=prod`.
+  - `API_BASE_URL=$(apiBaseUrlPROD)`.
+- Usa un Environment **PROD** con aprobación manual antes del despliegue.
 
 ---
 
 ## 8. CORS, seguridad y endpoints sensibles
 
-- `CORS_ORIGINS` se configura distinto por entorno para restringir el origen del SPA.
+- `CORS_ORIGINS` se define distinto por entorno para limitar el origen del front.
 - `/admin/seed`:
-  - requiere `X-Seed-Token` correcto,
-  - no expone interfaz en el frontend,
-  - no hace nada si la tabla ya tiene datos.
+  - Requiere token correcto.
+  - No se expone desde el frontend.
 - `/admin/debug`:
-  - expone sólo información mínima de configuración (sin datos sensibles),
-  - se usa para diagnosticar problemas de conexión a la DB o configuración de `DB_URL`.
+  - Muestra solo metadatos de configuración (no datos de negocio).
+  - Se utiliza en operaciones / troubleshooting de DB.
 
-Decisión: ofrecer herramientas de operación (seed/debug) sin exponerlas en la UI ni dejarlas totalmente abiertas.
+**Decisión:** ofrecer herramientas operativas sin abrirlas a cualquier usuario de la SPA.
 
 ---
 
-## 9. Justificación frente a los pedidos hechos luego del TP08
+## 9. Justificación frente a los pedidos de la cátedra (TP08)
 
-1. **“Poner más UnitTest”**
-   - Se agregaron tests unitarios de lógica de dominio en backend.
-   - Se ampliaron los tests de rutas para cubrir reglas de negocio nuevas.
-   - Se agregaron tests de servicio y componente en el frontend.
-   - Todos los tests se ejecutan y publican en el pipeline, con falla dura si alguno falla.
+**“Poner más UnitTest”:**
 
-2. **“Poner una app un poco más compleja”**
-   - Se agregaron reglas de negocio reales:
-     - títulos normalizados y únicos,
-     - resumen de stats,
-     - filtros de búsqueda,
-     - toggle de estado.
-   - El frontend refleja esta complejidad con filtros, resumen y manejo de errores.
+- Backend:
+  - Tests de lógica de dominio (`logic.py`).
+  - Tests de rutas (incluyendo stats, search, toggle, seed, debug).
+- Frontend:
+  - Tests de `ApiService` (todas las llamadas HTTP).
+  - Tests de `AppComponent` (alta, toggle, filtros, errores).
+- Todo se ejecuta en el pipeline y falla el build si algo se rompe.
 
-3. **“Asegurarse de que son 2 imágenes (back y front), esas 2 van a QA y a prod”**
-   - El pipeline construye dos imágenes Docker (API y WEB) y las publica en Docker Hub.
-   - Las mismas imágenes se reutilizan en QA y PROD mediante Azure Web Apps para contenedores.
-   - El cambio de entorno se hace por configuración (`APP_ENV`, `API_BASE_URL`), no por rebuild.
+**“Poner una app un poco más compleja”:**
+
+- Reglas nuevas:
+  - Títulos normalizados y únicos (negocio realista).
+  - Descripciones opcionales, usadas en filtros y en stats avanzadas.
+  - Filtros combinados por estado + texto.
+  - Resumen básico (stats backend) y resumen avanzado (stats frontend).
+- La UI refleja esta complejidad con secciones de health, filtros, resumen y listado enriquecido.
+
+**“Asegurarse que son 2 imágenes (back y front), esas 2 van a QA y a prod”:**
+
+- El pipeline construye dos imágenes Docker desde la raíz del repo.
+- Ambas se suben a Docker Hub.
+- QA y PROD referencian exactamente esas mismas imágenes, cambiando solo configuración.
+
+Con estas decisiones, el TP08 muestra una aplicación full-stack con lógica de negocio no trivial, buena cobertura de tests (unitarios, integración y E2E) y un pipeline de CI/CD profesional con Docker, SonarCloud y despliegue a QA/PROD en Azure App Service.
