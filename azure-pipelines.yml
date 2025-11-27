@@ -17,7 +17,7 @@ variables:
 
   # ------- TP08: Docker Hub -------
   dockerHubServiceConnection: 'dockerhub-connection'   # Service Connection en Azure DevOps
-  dockerHubNamespace: 'yagogandara'                    # Tu usuario Docker Hub
+  dockerHubNamespace: 'yagogandara'                    #Usuario Docker Hub
   apiImageName: 'todos-api'
   webImageName: 'todos-web'
   imageTag: '$(Build.BuildId)'                         # Tag de imagen = número de build
@@ -27,6 +27,8 @@ stages:
 - stage: Build
   displayName: Build, Test, Coverage, Sonar & Docker
   jobs:
+
+
   - job: build_and_analyze
     displayName: Front + Back + Coverage + Sonar + Docker
     steps:
@@ -193,6 +195,14 @@ stages:
       displayName: 'Publish SonarCloud quality gate'
       inputs:
         pollingTimeoutSec: '300'
+
+    - script: |
+        echo "Quality Gate: $(SONARQUBEQUALITYGATESTATUS)"
+        if [ "$(SONARQUBEQUALITYGATESTATUS)" != "Passed" ] && [ -n "$(SONARQUBEQUALITYGATESTATUS)" ]; then
+          echo "SonarCloud Quality Gate FAILED"; exit 1
+        fi
+      displayName: 'Gate: fail if Quality Gate is not Passed'
+
 
     # ---------- DOCKER: Build & Push images to Docker Hub ----------
     - task: Docker@2
