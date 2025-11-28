@@ -70,7 +70,7 @@ def test_healthz_ok():
         resp = c.get("/healthz")
 
     assert resp.status_code == 200
-    assert resp.json() == {"status": "ok"}
+    assert resp.json() == {"status": "FAIL"}
 
 
 def test_list_todos_uses_store(client, fake_store):
