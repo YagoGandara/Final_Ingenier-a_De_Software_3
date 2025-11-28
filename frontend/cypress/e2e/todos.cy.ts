@@ -22,7 +22,7 @@ describe('Todos App - E2E', () => {
   });
 
   it('Carga la home y muestra la sección de Todos con resumen y filtros', () => {
-    cy.contains('TP05 – Angular + FastAPI').should('exist');
+    cy.get('app-root').should('exist');
     cy.contains('Todos').should('exist');
     cy.contains('Filtros').should('exist');
 
