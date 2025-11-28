@@ -210,6 +210,7 @@ stages:
         buildContext: 'backend'
         tags: |
           $(imageTag)
+          latest
 
     - task: Docker@2
       displayName: 'Build & Push Web image'
@@ -221,6 +222,7 @@ stages:
         buildContext: 'frontend'
         tags: |
           $(imageTag)
+          latest
 
 # ==================== DEPLOY QA (CONTAINERS) ====================
 - stage: DeployQA
