@@ -17,7 +17,7 @@ type HealthStatus = { status: string; env: string };
   styleUrl: './app.component.css',
 })
 export class AppComponent {
-  title = 'TP05 – Angular + FastAPI';
+  title = 'TP05 – Angular + FastAPI (v2)';
 
   // Estado principal
   health = signal<HealthStatus | null>(null);
